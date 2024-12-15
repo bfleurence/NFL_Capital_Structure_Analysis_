@@ -1,0 +1,411 @@
+---
+title: "Analysing NFL Capital Structures to Predict Win Percentage"
+author: 
+  - Benjamin Fleurence 
+date: today
+thanks: Code and data available at https://github.com/bfleurence/NFL_Capital_Structure_Analysis.git  
+abstract: "This paper examines different capital allocations that NFL teams use as a predictor of wins, analyzing the amount of money teams spend on key position groups ranging from Quarterback to Defensive Line. Using a multiple regression we want to analyze certain percent increases in spending, and their percent changes on wins. These results highlight the importance of capital allocation, especially when your resources are finite, as they are in the NFL with the salary cap. Overall, in a cut throat league, these intrecacies can be the difference between a winning season and a losing season, and a coach/player/general manager keeping their job, or losing it."
+format: pdf
+number-sections: true
+bibliography: references.bib
+---
+
+
+```{r}
+#| include: false
+#| warning: false
+#| message: false
+#| echo: false
+
+library(tidyverse)
+library(kableExtra)
+library(arrow)
+library(ggpubr)
+library(modelsummary)
+library(tidymodels)
+library(ggplot2)
+library(dplyr)
+library(readr)
+library(here)
+library(reshape2)
+library(rvest)
+library(stringr)
+
+library(DiagrammeR)
+library(rsvg)
+library(DiagrammeRsvg)
+library(png)
+```
+
+# Introduction
+
+The National Football League (NFL), since 1994, has implemented a strict salary cap system. Different to baseball, who has no salary cap restriction, and the NBA or NHL who allows teams to go over the cap and into a luxury tax, the NFL restricts its teams to the same salary constraints. Meaning teams have to allocate their financial resources strategically, with limited funds, they must prioritize certain positions over others. 
+While prior studies have been performed to analyze factors such as player efficiency, draft value, or coaching addition, few have quantitatively analyzed how positional spending impacts wins. In this paper, we attempt to fill those gaps by providing insight into how teams should better allocate their spending and optimize their win expectancy. 
+This research seeks to answer the critical question: How does spending on different positional units translate to on-field success? Practically, NFL teams can use this analyses to infer which areas are currently undervalued or overvalued. 
+
+# Data {#sec-data}
+
+## Overview
+
+For this research paper, I collected data from [@citeSpotrac] to analyze the capital structures of each NFL franchise. I collected data from 2021 to 2024, excluding the COVID year, but still analyzing the data since the newest collective bargaining agreement was signed between the players' union and the NFL owners. To get this data, I downloaded the cover page and used [@citeChatGPT] to scan and relay the data into an Excel file. 
+The dataset offers a comprehensive view of each NFL teams salary allocation for each player, their position, the years on their contract, their base salary, dead money (money that would count against the cap even if the player were no longer on the roster), age, cap hit %, and other miscellaneous contract details. I also sourced data from [@citeProFootballReference], to get each teams total wins from 2021 to 2024. 
+
+All of the data analysis done throughout this paper were performed by R (Cite-R). Once all the data was collected from spotrac and pro-football reference, using r, several other variables were created. First, a general offense, defense or special teams variable was created using dplyr and tidyverse packages. This allows us to examine how NFL teams allocate their finite resources to the three different phases of the game. To do so, the offensive positions, QB, RB, HB, FB, WE, TE, LT, LG, C, RG, RG, T, were categorized as offense, K, P, and LS  were classed as special teams, and the rest were sorted as defense. Subsequently, another variable, Position Group, was added to allow us to further dissect the cap allocation used by each NFL team. The position groups were Quarterbacks (QB), Runningbacks (RB), Wide-receivers (WR), Tight ends (TE), Offensive Linemen (OL), Defensive Lineman (DL), Edge rushers (EDGE), inside linebacker (MLB), Cornerbacks (CB), Safties (S), and Special Teams (ST). Lastly, a positional spending variable was created, equating the total sum spent on a position group by a particular team in a particular year. For example, the Seahawks in 2021 had three quarterbacks on their active roster, one of which (Russell Wilson) was making $32,000,000 while the other two were making under a million, equating their total positional spending to $33,507,502. 
+The other data set, wins [@citeProFootballReference] was loaded into a second data file (raw_data_2), and merged with the previously collected data to form a final table with the Team name, Year, Position Group, Position Spending, and wins, with which we based our regression model on. 
+
+## Measurement
+	
+As the NFL players have unionized, they are forced to come to terms with the NFL owners on a collective bargaining agreement (CBA) every so often. While many different topics are addressed within this contract, one such topic is the salary cap. It was introduced in 1994 and based on the percentage of revenue agreed upon in the CBA to be divided amongst the 32 NFL teams. This cap forces NFL teams to allocate their resources wisely, eliminating the ability for big market teams to simply out-spend their smaller market opponents (a practice very common in baseball, a salary cap-less league). NFL player salaries are made public, and in 2007, as an internal fantasy tool, Michael Ginnitti and Scott Allen began tracking and recording that data, making it public for anyone to use. They focus on player salaries and team payrolls and offer information on each of the four major North American sports leagues. While you are not able to directly download the data into an Excel or CSV file, you can drag the salary cap tables across Windows or use AI tools to download and relay the information. 
+Each entry in this dataset is due to a concerted effort from individuals to track player contract announcements and analyze league funds both across past years and projecting into future ones. 
+The other half of this data set is based on team wins, which are accumulated over the course of the NFL 17 games regular season, and postseason playoff tournament. Regular season wins of course are only viable to get you into the playoffs and seeding to determine home field advantage. While the champion of the season is the team that wins the playoff tournament, culminating in the Super Bowl, for the sake of this paper, we are treating all wins (regular and post season) as equal.
+
+
+## Distribution of Positional Spending by Year 
+```{r}
+#| include: false
+#| echo: false
+
+# Disable scientific notation globally
+options(scipen = 999)
+
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-2024
+#| fig-cap: NFL Capital Distribution by team for each position group in 2024
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assume final_table_nonzero is already available from earlier processing
+# If not, load it from a saved CSV (uncomment if needed)
+# final_table_nonzero <- read.csv("path_to_saved_final_table_nonzero.csv")
+
+# Define final_table_nonzero first
+final_table_nonzero <- read.csv("~/Downloads/NFL_Capital_Structure_Analysis/data/03-cleaned_data/final_table_nonzero.csv")
+
+
+# Filter the data for the year 2024
+data_2024 <- final_table_nonzero %>%
+  filter(Year == 2024) %>%
+  group_by(Team, Position_Group) %>%
+  summarize(
+    Total_Spending = sum(Position_Group_Spending, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create a graph
+ggplot(data_2024, aes(x = reorder(Team, Total_Spending), y = Total_Spending, fill = Position_Group)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "NFL Team Spending by Position Group in 2024",
+    x = "NFL Team",
+    y = "Total Spending (in Millions of $)",
+    fill = "Position Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 10, hjust = 0.5, margin = margin(b = 20)), # Title size, centered, with more bottom margin
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels
+    axis.text.y = element_text(size = 10),            # Y-axis text size
+    axis.title.x = element_text(size = 12),           # X-axis label size
+    axis.title.y = element_text(size = 10),           # Y-axis label size (smaller)
+    legend.title = element_text(size = 8),           # Legend title size
+    legend.text = element_text(size = 8)             # Legend text size
+  )
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-2023
+#| fig-cap: NFL Capital Distribution by team for each position group in 2023
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assume final_table_nonzero is already available from earlier processing
+# If not, load it from a saved CSV (uncomment if needed)
+# final_table_nonzero <- read.csv("path_to_saved_final_table_nonzero.csv")
+
+# Define final_table_nonzero first
+final_table_nonzero <- read.csv("~/Downloads/NFL_Capital_Structure_Analysis/data/03-cleaned_data/final_table_nonzero.csv")
+
+
+# Filter the data for the year 2023
+data_2023 <- final_table_nonzero %>%
+  filter(Year == 2023) %>%
+  group_by(Team, Position_Group) %>%
+  summarize(
+    Total_Spending = sum(Position_Group_Spending, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create a graph
+ggplot(data_2023, aes(x = reorder(Team, Total_Spending), y = Total_Spending, fill = Position_Group)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "NFL Team Spending by Position Group in 2023",
+    x = "NFL Team",
+    y = "Total Spending (in Millions of $)",
+    fill = "Position Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 10, hjust = 0.5, margin = margin(b = 20)), # Title size, centered, with more bottom margin
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels
+    axis.text.y = element_text(size = 10),            # Y-axis text size
+    axis.title.x = element_text(size = 12),           # X-axis label size
+    axis.title.y = element_text(size = 10),           # Y-axis label size (smaller)
+    legend.title = element_text(size = 12),           # Legend title size
+    legend.text = element_text(size = 10)             # Legend text size
+  )
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-2022
+#| fig-cap: NFL Capital Distribution by team for each position group in 2022
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assume final_table_nonzero is already available from earlier processing
+# If not, load it from a saved CSV (uncomment if needed)
+# final_table_nonzero <- read.csv("path_to_saved_final_table_nonzero.csv")
+
+# Define final_table_nonzero first
+final_table_nonzero <- read.csv("~/Downloads/NFL_Capital_Structure_Analysis/data/03-cleaned_data/final_table_nonzero.csv")
+
+
+# Filter the data for the year 2024
+data_2022 <- final_table_nonzero %>%
+  filter(Year == 2022) %>%
+  group_by(Team, Position_Group) %>%
+  summarize(
+    Total_Spending = sum(Position_Group_Spending, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create a graph
+ggplot(data_2022, aes(x = reorder(Team, Total_Spending), y = Total_Spending, fill = Position_Group)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "NFL Team Spending by Position Group in 2022",
+    x = "NFL Team",
+    y = "Total Spending (in Millions of $)",
+    fill = "Position Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 10, hjust = 0.5, margin = margin(b = 20)), # Title size, centered, with more bottom margin
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels
+    axis.text.y = element_text(size = 10),            # Y-axis text size
+    axis.title.x = element_text(size = 12),           # X-axis label size
+    axis.title.y = element_text(size = 10),           # Y-axis label size (smaller)
+    legend.title = element_text(size = 12),           # Legend title size
+    legend.text = element_text(size = 10)             # Legend text size
+  )
+```
+
+```{r}
+#| echo: false
+#| warning: false
+#| message: false
+#| label: fig-2021
+#| fig-cap: NFL Capital Distribution by team for each position group in 2021
+
+# Load necessary libraries
+library(ggplot2)
+library(dplyr)
+
+# Assume final_table_nonzero is already available from earlier processing
+# If not, load it from a saved CSV (uncomment if needed)
+# final_table_nonzero <- read.csv("path_to_saved_final_table_nonzero.csv")
+
+# Define final_table_nonzero first
+final_table_nonzero <- read.csv("~/Downloads/NFL_Capital_Structure_Analysis/data/03-cleaned_data/final_table_nonzero.csv")
+
+
+# Filter the data for the year 2024
+data_2021 <- final_table_nonzero %>%
+  filter(Year == 2021) %>%
+  group_by(Team, Position_Group) %>%
+  summarize(
+    Total_Spending = sum(Position_Group_Spending, na.rm = TRUE),
+    .groups = "drop"
+  )
+
+# Create a graph
+ggplot(data_2021, aes(x = reorder(Team, Total_Spending), y = Total_Spending, fill = Position_Group)) +
+  geom_bar(stat = "identity") +
+  labs(
+    title = "NFL Team Spending by Position Group in 2021",
+    x = "NFL Team",
+    y = "Total Spending (in Millions of $)",
+    fill = "Position Group"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 10, hjust = 0.5, margin = margin(b = 20)), # Title size, centered, with more bottom margin
+    axis.text.x = element_text(angle = 90, hjust = 1), # Rotate x-axis labels
+    axis.text.y = element_text(size = 10),            # Y-axis text size
+    axis.title.x = element_text(size = 12),           # X-axis label size
+    axis.title.y = element_text(size = 10),           # Y-axis label size (smaller)
+    legend.title = element_text(size = 10),           # Legend title size
+    legend.text = element_text(size = 6)             # Legend text size
+  )
+```
+\newpage
+
+# Model
+```{r}
+#| label: setup
+#| include: false
+
+# Load necessary libraries
+library(dplyr)
+library(tidyr)
+
+
+# Prepare data for the model with log transformation on Spending
+model_data <- final_table_nonzero %>%
+  select(Team, Year, Position_Group, `Position_Group_Spending`, Wins) %>%
+  pivot_wider(names_from = Position_Group, values_from = `Position_Group_Spending`, values_fill = list(`Spending on The Position Group` = 0))
+
+# Log-transform the spending columns (add 1 to avoid log(0) issues)
+model_data_log <- model_data %>%
+  mutate(across(starts_with("QB"):starts_with("ST"), ~log1p(.)))  # log1p is log(1 + value), to handle 0 values
+
+# Disable scientific notation
+options(scipen = 999)
+
+# Fit the regression model with log-transformed spending
+model_log <- lm(Wins ~ QB + RB + WR + TE + OL + DL + EDGE + MLB + CB + S + ST, data = model_data_log)
+
+# View the summary of the regression model
+summary(model_log)
+
+# Save the log-transformed data to a CSV file
+write.csv(model_data_log, file = "model_data_log.csv", row.names = FALSE)
+```
+
+```{r}
+#| label: tbl-regression-results
+#| tbl-cap: Results of the linear regression model.
+#| echo: false
+#| eval: true
+#| warning: false
+#| message: false
+
+# Load necessary libraries
+library(broom)
+library(gt)
+library(dplyr)
+
+# Create a tidy dataframe of the regression results
+regression_results <- broom::tidy(model_log) %>%
+  mutate(
+    p.value = formatC(p.value, format = "e", digits = 2)  # Format p-values for clarity
+  ) %>%
+  rename(
+    Term = term,
+    Estimate = estimate,
+    `Std. Error` = std.error,
+    `t-value` = statistic,
+    `P-value` = p.value
+  )
+
+# Create a styled table using gt
+regression_results %>%
+  gt() %>%
+  tab_header(
+    title = "Linear Regression Results",
+    subtitle = "Summary of coefficients, standard errors, t-values, and p-values."
+  ) %>%
+  fmt_number(
+    columns = c(Estimate, `Std. Error`, `t-value`),
+    decimals = 3
+  ) %>%
+  cols_label(
+    Term = "Predictor",
+    Estimate = "Coefficient",
+    `Std. Error` = "Std. Error",
+    `t-value` = "t-Value",
+    `P-value` = "P-Value"
+  ) %>%
+  tab_options(
+    table.font.size = px(12),
+    data_row.padding = px(5)
+  )
+
+```
+The goal of our model was to analyze the impact of positional spending on a team's win percentage. We used position group spending as the independent variables, focusing on quarterbacks, running backs, wide receivers, tight ends, offensive linemen, defensive linemen, edges, linebackers, corners, safeties, and special teams players. To make the interpretation more intuitive, we implemented a log transformation on our dependent variables, which allows us to interpret our model results as a 1% increase in positional spending, equating to an x% change in wins, based on the variable's coefficients. While this model has its limitations, certain insights can be taken away. For example, if one position group coefficient is significantly larger than another, while we can’t directly say you need to increase your resource allocation by this amount on this position to project this increase in wins, we can distinguish, since the new CBA was signed, which position groups add more value for a 1% increase in spending. So, if the QB coefficient is significantly larger than the Special Teams coefficient, we can infer that teams should prioritize their QB development over their punters and kickers. 
+
+## Assumptions and Limitations 
+
+There are certain limitations to this model that, in succeeding iterations, could be worth exploring. This model offers us insight into how individual position groups provide wins; however, it does not offer us an optimal capital structure which could be an interesting model to create. Also, other external factors are not accounted for, such as injuries, coaching strategy, or player performance, which all play a part in an NFL team's win percentage. 
+This model solely bases future wins on player salary and where that salary gets allocated. While other external factors are not accounted for, such as injuries, coaching strategy, or player performance. While it is safe to assume that the first year a player signs a big deal, they are performing at a level deserved by that contract, as players get older and decline naturally with age, it becomes the case that the large contracts do not equate to production. 
+The opposite end of that spectrum also exists where Rookie players may be over-performing their salary. This is especially apparent with rookie quarterbacks, who are subject to the rookie scale (i.e: where you are drafted in the annual NFL draft decides how much money you will make for the first 4-5 years of your NFL career). These salary differences can be misleading, especially when we analyze our results based on position group; therefore, an older veteran could be accounting for most of the salary paid to that group, but a young rookie is the one accounting for the production. Our model has no way of interpreting that nuance. 
+Lastly, this analysis does not leave room for break-even points. Our model assumes a linear relationship between positional spending and wins. While on a small scale, that assumption can be safe, on a larger scale (increasing quarterback spending by 1,000%), we would most likely see diminishing returns as the rest of the team falters. In line with the idea of creating a model that optimizes capital allocation by position group, a model that allows for break-even analysis would expand the interpretation of our results. 
+
+# Results
+## Quarterback 
+The quarterback coefficient was found to be economically and statistically significant at a 10% value. A 10% increase in spending resulted in a 6% increase in win percentage. While this result is fairly intuitive, as the quarterback is considered the most important position in sports, teams already treat them that way. Even your average quarterbacks, if a team believes them to be at that level, will receive a top-of-the-market quarterback deal, and the top-of-the-line guys simply receive more years on their contract. So, across the league, about half the quarterbacks are earning top money, and even so, our model indicates they are undervalued.  
+
+## Runningback
+Where our analysis gets more interesting is with the running backs. According to our model, a 10% increase in runningback spending equates to about a 13% increase in win percentage. While clearly economically significant, the running back coefficient was the only value found to be statistically significant at a 1% value. This is fascinating as, in recent years, teams have been extremely hesitant to pay running backs on second contracts. However, in 2024, the two current favorites for offensive player of the year are older running backs on their third contracts in, Saquon Barkley and Derrick Henry. Other second-contract running backs, Christian McCaffrey, Josh Jacobs, and Joe Mixon, are also all on teams having significant winning seasons and all five of these players’ previous teams are having losing seasons (Giants, Titans, Panthers, Raiders, and Bengals). So, while the NFL world has been shifting away from paying running backs, both my model and recent NFL precedent are showing running backs are actually significantly undervalued.
+
+## Wide Reciever 
+Our wide receiver coefficient is the first statistically significant result we’ve received that has not been economically significant. While statistically significant at a 10% level, a 1000% increase in receiver spending would equate to approximately no increase in win percentage. Our model suggests that increasing spending in other positions will have a more significant impact on winning. However, this goes against the NFL trend that has been developing recently. Wide receivers have gone from 10 years ago making less money than running backs to now the top-of-the-market deals are bigger than any other non-quarterback position. Because our model interprets allocation, not pure spending, and our result was found to be statistically significant, one interpretation is that the receiver market has plateaued, and teams should begin investing their money elsewhere. 
+
+## Defensive Line
+Defensive line, similar to wide receiver, was also found to be statistically significant but not economically significant as a 1000% increase in spending also equates to roughly no increase in win percentage. This tells me the market has plateaued again, and while important to a team, increasing capital allocation, according to our model, does not result in more success. 
+
+## Safties and Special Teams 
+While both of these results were found to be economically significant, an increase of 10% in spending allocation equates to a 22% decrease in win percentage for safeties and a 33% increase in special teams players; they were not statistically significant. So, while our model suggests that there is a large impact in paying these positions, we do not have enough data to say it isn’t simply by chance. This could be due to a multitude of reasons, but these tend to be the lowest-paid position groups and, therefore, could be subject to higher variance, causing our distorted result.
+
+## Insignificant Results 
+Our coefficients for tight-ends, corners, middle linebackers, edge rushers, and offensive line were all neither statistically nor economically significant. Because of this, according to our model, we cannot say that an increasing allocation of spending has any impact on a team's win percentage. Either to say they are in unimportant positions or to be perfectly valued where they are. There’s also a lot of variation within these positions. Offensive linemen account for the single biggest position group, with most teams carrying around 9. So, compared to other positions, their individual pay is more diluted. Tight ends are famously top-heavy, which every fantasy football player can tell you, with only about 5-10 productive players at that position. 
+
+```{r}
+#| echo: false
+#| eval: true
+#| warning: false
+#| message: false
+
+```
+
+```{r}
+#| echo: false
+#| eval: true
+#| label: tbl-modelresults
+#| tbl-cap: "Explanatory models of flight time based on wing width and wing length"
+#| warning: false
+
+```
+
+
+# Discussion
+Our results bring up interesting points. The idea is that certain position markets have plateaued and are no longer providing extra value while others are still being undervalued. What’s clear is that the two areas where increased allocation has clear economic and statistically important results are quarterbacks and runningbacks. Runningbacks are particularly interesting because their salaries have stagnated over the last 10 years, leading to the position being significantly undervalued. Quarterbacks are the opposite; they’ve never made more money, both in total dollars and as a percentage of the salary cap. Yet, our model still says they’re not being paid enough. It would be interesting to see if that is affected by rookie quarterbacks bringing excess value and skewing our model, but the truth is, you can never pay them too much.
+
+Our model did have certain limitations, not giving us much information on what to do with the other position groups, whether our result was insignificant and could be due to random error, or we could be confident in our results; they simply don’t affect anything. Moving forward, adding more parameters and looking at potential cap optimization models could help us find more valuable information to use on other groups. Moreover, every NFL team is constructed differently. There are only so many hours in the week, and NFL teams can only practice so many different things. Because of this, teams tend to build identities, leaning towards the run or the pass or implementing different defensive schemes, and certain players fit better with different schemes. Adding a layer of analysis that accounts for the different schematic tendencies could also help take the application of our findings to another level. 
+
+As seasons go on, markets tend to fluctuate. Analyzing and tracking these markets to find potential 
+
+\newpage
+
+
+
+# References
+
+
